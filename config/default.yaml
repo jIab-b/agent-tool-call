@@ -1,0 +1,10 @@
+model_path: ~/huggingface/Qwen3-0.6B
+tokenizer_path: ~/huggingface/Qwen3-0.6B
+max_tokens: 1024
+temperature: 0.0
+enabled_tools:
+  - file_search
+  - file_read
+  - web_search
+  - mcp_wrapper
+  - sandbox
