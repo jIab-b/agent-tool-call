@@ -15,7 +15,6 @@ def build_system_prompt():
     for tool in tools:
         prompt += f"- tool: {tool.name}\n"
         prompt += f"  description: {tool.description}\n"
-        # Assuming OpenAI-style schema for parameters
         if "properties" in tool.parameters:
             props = tool.parameters["properties"]
             if props:
@@ -34,7 +33,11 @@ def make_history(conv, system_prompt):
     """
     out = ""
     for role, text in conv:
-        out += role + ": " + text + "\n"
+        # FIX: Format tool output with a consistent 'tool' role for the model.
+        if role == "tool":
+            out += f"tool_output:\n{text}\n"
+        else:
+            out += f"{role}: {text}\n"
     return system_prompt + "\n" + out
 
 def run_single_prompt(prompt_text: str):
@@ -67,7 +70,8 @@ def run_single_prompt(prompt_text: str):
                     print("---")
 
                     conv.append(("assistant", reply))
-                    conv.append((tool.name, result))
+                    # FIX: Use the generic "tool" role instead of the specific tool name.
+                    conv.append(("tool", result))
                 else:
                     print("\nAssistant:")
                     print(reply)

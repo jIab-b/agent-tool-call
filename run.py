@@ -15,6 +15,8 @@ def _load_tools(enabled):
         importlib.import_module(f"tools.{name}")
 
 def main():
+    debug_mode = "--debug" in sys.argv 
+    args = [arg for arg in sys.argv if arg != '--debug']
     if len(sys.argv) < 2:
         print("Usage: python run.py \"<your prompt>\"")
         sys.exit(1)
@@ -40,7 +42,8 @@ def main():
     sgl.set_default_backend(runtime)
 
     from agent.agent import run_single_prompt
-    run_single_prompt(prompt)
+    run_single_prompt(prompt, debug=debug_mode)
+    runtime.shutdown()
 
 if __name__ == "__main__":
     main()
