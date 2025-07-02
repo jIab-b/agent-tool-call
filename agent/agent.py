@@ -45,7 +45,7 @@ def _generate_reply(prompt: str) -> str:
     if openai_api_key and openai is not None:
         # openai>=1.0.0 uses the `chat.completions.create` namespace
         response = openai.chat.completions.create(
-            model="o4-mini",
+            model="gpt-4.1-mini",
             messages=[{"role": "user", "content": prompt}],
             max_completion_tokens=1024,
             temperature=1.0,
