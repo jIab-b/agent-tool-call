@@ -8,3 +8,5 @@ enabled_tools:
   - web_search
   - mcp_wrapper
   - sandbox
+  - list_directory
+  - find_path
