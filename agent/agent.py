@@ -73,12 +73,20 @@ def run_single_prompt(prompt_text: str, **kwargs):
     Runs the agent for a single turn with a given prompt.
     It will continue to loop through tools until a final text answer is generated.
     """
+    debug_mode = kwargs.get("debug", False)
     conv = [("user", prompt_text)]
     system_prompt = build_system_prompt()
-    print(system_prompt)
+
+    if debug_mode:
+        print(system_prompt)
+
     while True:
         prompt = make_history(conv, system_prompt)
-        print(prompt)
+        if debug_mode:
+            print("--- Conversation History ---")
+            print(prompt)
+            print("--------------------------")
+
         reply = _generate_reply(prompt)
         
         json_start_index = reply.find('{')
@@ -93,9 +101,10 @@ def run_single_prompt(prompt_text: str, **kwargs):
                     tool = get(payload["tool"])
                     result = tool.run(payload.get("args", {}))
                     
-                    print(f"--- Used Tool: {tool.name}, Args: {payload.get('args', {})} ---")
-                    print(result)
-                    print("---")
+                    if debug_mode:
+                        print(f"--- Used Tool: {tool.name}, Args: {payload.get('args', {})} ---")
+                        print(result)
+                        print("---")
 
                     conv.append(("assistant", reply))
                     # FIX: Use the generic "tool" role instead of the specific tool name.
@@ -106,7 +115,8 @@ def run_single_prompt(prompt_text: str, **kwargs):
                     break
 
             except (json.JSONDecodeError, KeyError, Exception) as e:
-                print(f"--- Tool Error: {e} ---")
+                if debug_mode:
+                    print(f"--- Tool Error: {e} ---")
                 conv.append(("assistant", reply))
                 conv.append(("error", f"Invalid tool call or execution error: {e}"))
         else:
