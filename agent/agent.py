@@ -77,16 +77,8 @@ def run_single_prompt(prompt_text: str, **kwargs):
     conv = [("user", prompt_text)]
     system_prompt = build_system_prompt()
 
-    if debug_mode:
-        print(system_prompt)
-
     while True:
         prompt = make_history(conv, system_prompt)
-        if debug_mode:
-            print("--- Conversation History ---")
-            print(prompt)
-            print("--------------------------")
-
         reply = _generate_reply(prompt)
         
         json_start_index = reply.find('{')
@@ -103,8 +95,6 @@ def run_single_prompt(prompt_text: str, **kwargs):
                     
                     if debug_mode:
                         print(f"--- Used Tool: {tool.name}, Args: {payload.get('args', {})} ---")
-                        print(result)
-                        print("---")
 
                     conv.append(("assistant", reply))
                     # FIX: Use the generic "tool" role instead of the specific tool name.
