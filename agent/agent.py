@@ -43,7 +43,6 @@ def _generate_reply(prompt: str) -> str:
     otherwise fall back to the local SGLang runtime.
     """
     if openai_api_key and openai is not None:
-        # openai>=1.0.0 uses the `chat.completions.create` namespace
         response = openai.chat.completions.create(
             model="gpt-4.1-mini",
             messages=[{"role": "user", "content": prompt}],
@@ -61,7 +60,6 @@ def make_history(conv, system_prompt):
     """
     out = ""
     for role, text in conv:
-        # FIX: Format tool output with a consistent 'tool' role for the model.
         if role == "tool":
             out += f"tool_output:\n{text}\n"
         else:

@@ -1,118 +1,52 @@
-# Hybrid Strategy Implementation Plan
+# Plan: Hybrid Tool-Calling Strategy
 
-This document outlines the changes required to introduce a selectable execution strategy (`reactive` vs. `hybrid`) into the agent.
+The goal is to create a more robust agent that can reason about multi-step tasks, execute a sequence of tools, and handle intermediate results. This will be achieved by splitting the agent's process into two main phases: **Planning** and **Execution**.
 
-## 1. Configuration (`config/default.yaml`)
+### Phase 1: Planning
 
-We will add a new `strategy` key to the configuration file. This ensures backward compatibility by defaulting to the current reactive behavior if the key is absent.
+The first step is to have the LLM generate a plan of action. Instead of asking for a single tool call, we will prompt the model to produce a JSON array of tool calls that represent the steps needed to accomplish the user's goal.
 
-**Proposed `config/default.yaml`:**
-```yaml
-# 'reactive' (default): The agent decides one step at a time.
-# 'hybrid': The agent first creates a high-level plan, then executes it.
-strategy: reactive
+1.  **Modify the System Prompt:**
+    The `build_system_prompt` function in `agent/agent.py` will be updated to instruct the model to return a `plan` consisting of a list of tool calls.
 
-model_path: ~/huggingface/Qwen3-0.6B
-tokenizer_path: ~/huggingface/Qwen3-0.6B
-max_tokens: 1024
-temperature: 0.7
-enabled_tools:
-  - file_search
-  - file_read
-  - web_search
-  - mcp_wrapper
-  - sandbox
-  - list_directory
-  - find_path
+2.  **Create a `generate_plan` Function:**
+    A new function, `generate_plan(prompt)`, will be added to `agent/agent.py`. This function will use the modified system prompt to call the LLM and parse its output, returning a list of tool calls (e.g., `[{"tool": "find_path", "args": {"name": "ComfyUI"}}, {"tool": "list_directory", "args": {"path": "$1.output"}}]`). The `$1.output` syntax indicates that the input for the second tool comes from the output of the first.
+
+### Phase 2: Execution
+
+Once the plan is generated, the agent will execute it step-by-step, feeding the output of one tool into the input of the next, similar to a ReAct loop.
+
+1.  **Update `run_single_prompt`:**
+    The main `run_single_prompt` function in `agent/agent.py` will be refactored to orchestrate the new workflow:
+    a.  Call `generate_plan()` with the user's initial prompt.
+    b.  Iterate through the tool calls in the generated plan.
+    c.  For each tool call, substitute any placeholder arguments (like `$1.output`) with the actual output from the previous step.
+    d.  Execute the tool and append the result to the conversation history.
+    e.  If a tool fails, the loop will terminate, and the error will be reported.
+
+2.  **Final Response Generation:**
+    After all tools in the plan have been executed successfully, the agent will make one final call to the LLM. It will provide the complete conversation history, including all tool outputs, and ask for a final, user-friendly answer.
+
+### Implementation Diagram
+
+```mermaid
+graph TD
+    A[User Prompt] --> B{1. Generate Plan};
+    B -- Plan (JSON Array) --> C{2. Execute Plan};
+    subgraph Execution Loop
+        direction LR
+        C1[Get Next Tool] --> C2{Execute Tool};
+        C2 -- Output --> C3{Update History};
+        C3 --> C1;
+    end
+    C -- Completed History --> D{3. Generate Final Answer};
+    D --> E[Final Response];
 ```
 
-## 2. Agent Logic (`agent/agent.py`)
+### Code Changes
 
-We will refactor `agent.py` to support multiple strategies without breaking existing functionality.
+*   **`agent/agent.py`**: This file will see the most changes. The `run_single_prompt` function will be rewritten to implement the Plan and Execute loop. A new `generate_plan` function will be added.
+*   **`run_remote.py`**: No changes are expected here, as it simply acts as an entry point.
+*   **`tools/tool_base.py`**: No changes are expected here, as the existing tool registration and calling mechanism can be reused.
 
-- **`run_single_prompt` will be renamed to `_run_reactive_strategy`**. Its code will remain unchanged.
-- A new **`_run_hybrid_strategy`** function will be added to contain the planner/executor logic.
-- A new public function, **`run`**, will act as a dispatcher, calling the appropriate strategy based on the configuration.
-
-**Proposed `agent/agent.py` structure:**
-```python
-# ... (imports and helper functions remain)
-
-def _run_reactive_strategy(prompt_text: str, **kwargs):
-    # This function will contain the exact code from the original
-    # run_single_prompt function.
-    # ... existing while True loop ...
-
-def _generate_plan(prompt_text: str) -> list[str]:
-    # New function: Asks the LLM to create a high-level plan.
-    # (Implementation to be added)
-    print("--- Generating Plan ---")
-    # Placeholder plan
-    plan = [
-        f"Understand the user's request: {prompt_text}",
-        "Execute the necessary steps.",
-        "Provide a final answer."
-    ]
-    return plan
-
-def _execute_sub_goal(sub_goal: str, context: dict):
-    # New function: The "Executor" loop to achieve one sub-goal.
-    # (Implementation to be added, will be similar to the reactive loop)
-    print(f"--- Executing Sub-Goal: {sub_goal} ---")
-    # Placeholder result
-    return f"Completed: {sub_goal}"
-
-
-def _run_hybrid_strategy(prompt_text: str, **kwargs):
-    # New function: The "Orchestrator" for the hybrid model.
-    plan = _generate_plan(prompt_text)
-    
-    context = {} # Stores results from previous steps
-    for sub_goal in plan:
-        result = _execute_sub_goal(sub_goal, context)
-        context[sub_goal] = result
-    
-    # Final answer generation would go here
-    print("\nAssistant (Hybrid):")
-    print("Plan executed. Final answer would be formulated here.")
-
-
-def run(prompt: str, strategy: str = "reactive", **kwargs):
-    """
-    Main entrypoint for the agent.
-    Dispatches to the correct strategy function based on the config.
-    """
-    if strategy == "hybrid":
-        _run_hybrid_strategy(prompt, **kwargs)
-    else:
-        _run_reactive_strategy(prompt, **kwargs)
-
-```
-
-## 3. Entrypoint (`run_remote.py`)
-
-The main script will be updated to read the `strategy` from the config and call the new `agent.run` dispatcher, instead of `run_single_prompt`.
-
-**Proposed changes to `run_remote.py`'s `main` function:**
-```python
-# ... (imports and other functions)
-
-def main():
-    # ... (arg parsing)
-    
-    cfg = _load_config()
-    _load_tools(cfg.get("enabled_tools", []))
-    
-    # Get the strategy from config, default to 'reactive'
-    strategy = cfg.get("strategy", "reactive")
-
-    # --- Backend setup (OpenAI or local SGLang) ---
-    # ... (existing backend setup logic)
-
-    # Import the new unified 'run' function
-    from agent.agent import run
-    
-    # Call the dispatcher with the selected strategy
-    run(prompt, strategy=strategy, debug=debug_mode)
-
-    # ... (runtime shutdown if applicable)
+This hybrid approach provides the best of both worlds: the structure of an upfront plan and the flexibility of a step-by-step execution model, allowing the agent to handle more complex, multi-tool tasks effectively.
