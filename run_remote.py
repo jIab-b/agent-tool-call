@@ -1,4 +1,5 @@
 import importlib
+import argparse
 import os
 import sys
 from pathlib import Path
@@ -21,13 +22,13 @@ def _load_tools(enabled):
         importlib.import_module(f"tools.{name}")
 
 def main():
-    debug_mode = "--debug" in sys.argv 
-    args = [arg for arg in sys.argv if arg != '--debug']
-    if len(sys.argv) < 2:
-        print("Usage: python run.py \"<your prompt>\"")
-        sys.exit(1)
-    
-    prompt = sys.argv[1]
+    parser = argparse.ArgumentParser()
+    parser.add_argument("prompt", type=str, help="The user prompt for the agent.")
+    parser.add_argument("--debug", type=int, default=0, help="Set the debug level (0, 1, or 2).")
+    args = parser.parse_args()
+
+    prompt = args.prompt
+    debug_mode = args.debug
     
     cfg = _load_config()
     _load_tools(cfg.get("enabled_tools", []))

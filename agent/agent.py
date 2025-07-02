@@ -74,7 +74,7 @@ def _run_single_prompt_legacy(prompt_text: str, **kwargs):
     Runs the agent for a single turn with a given prompt.
     It will continue to loop through tools until a final text answer is generated.
     """
-    debug_mode = kwargs.get("debug", False)
+    debug_mode = kwargs.get("debug", 0)
     conv = [("user", prompt_text)]
     system_prompt = build_system_prompt()
 
@@ -94,7 +94,7 @@ def _run_single_prompt_legacy(prompt_text: str, **kwargs):
                     tool = get(payload["tool"])
                     result = tool.run(payload.get("args", {}))
                     
-                    if debug_mode:
+                    if debug_mode >= 1:
                         print(f"--- Used Tool: {tool.name}, Args: {payload.get('args', {})} ---")
 
                     conv.append(("assistant", reply))
@@ -106,7 +106,7 @@ def _run_single_prompt_legacy(prompt_text: str, **kwargs):
                     break
 
             except (json.JSONDecodeError, KeyError, Exception) as e:
-                if debug_mode:
+                if debug_mode >= 2:
                     print(f"--- Tool Error: {e} ---")
                 conv.append(("assistant", reply))
                 conv.append(("error", f"Invalid tool call or execution error: {e}"))
@@ -128,12 +128,12 @@ def _extract_json_array(text: str) -> List[Dict[str, Any]]:
     return arr
 
 
-def generate_plan(prompt_text: str, debug_mode: bool = False) -> List[Dict[str, Any]]:
+def generate_plan(prompt_text: str, debug_mode: int = 0) -> List[Dict[str, Any]]:
     """Ask the model to return a `plan` array of tool calls."""
     system_prompt = build_system_prompt()
     conv = [("user", prompt_text)]
     reply = _generate_reply(make_history(conv, system_prompt))
-    if debug_mode:
+    if debug_mode >= 2:
         print("--- Plan LLM Reply ---")
         print(reply)
         print("----------------------")
@@ -155,13 +155,19 @@ def _substitute_args(args: Dict[str, Any], outputs: List[Any]) -> Dict[str, Any]
 
 def run_single_prompt(prompt_text: str, **kwargs):
     """Hybrid planner-executor implementation."""
-    debug_mode = kwargs.get("debug", False)
+    debug_mode = kwargs.get("debug", 0)
     try:
+        if debug_mode >= 2:
+            print("--- Agent: Generating plan ---")
         plan = generate_plan(prompt_text, debug_mode=debug_mode)
     except Exception:
+        if debug_mode >= 2:
+            print("--- Agent: Plan generation failed, falling back to legacy mode ---")
         # fallback to legacy behaviour if plan generation fails
         return _run_single_prompt_legacy(prompt_text, **kwargs)
     if not plan:
+        if debug_mode >= 2:
+            print("--- Agent: Plan is empty, falling back to legacy mode ---")
         return _run_single_prompt_legacy(prompt_text, **kwargs)
 
     conv = [("user", prompt_text)]
@@ -181,14 +187,14 @@ def run_single_prompt(prompt_text: str, **kwargs):
             result = tool.run(args)
         except Exception as e:
             conv.append(("error", f"{tool_name} failed: {e}"))
-            if debug_mode:
-                print(f"tool {tool_name} failed: {e}")
+            if debug_mode >= 2:
+                print(f"--- Agent: Tool {tool_name} failed: {e} ---")
             break
 
         outputs.append(result)
         conv.append(("tool", result))
-        if debug_mode:
-            print(f"--- step {idx}: {tool_name}, args: {args} ---")
+        if debug_mode >= 1:
+            print(f"--- Agent: Executing step {idx}: {tool_name}, args: {args} ---")
 
     # final answer
     final_reply = _generate_reply(make_history(conv, build_system_prompt()))
