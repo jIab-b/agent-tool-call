@@ -1,6 +1,11 @@
 import json
+import os
 import sglang as sgl
 from tools.tool_base import get, list_available
+try:
+    import openai
+except ImportError:
+    openai = None
 
 def build_system_prompt():
     """
@@ -27,6 +32,29 @@ def build_system_prompt():
 def chat(s, history):
     s += history + "assistant: " + sgl.gen("reply", max_tokens=1024)
 
+# --- runtime selection between remote OpenAI and local SGLang backends ---
+openai_api_key = os.getenv("OPENAI_API_KEY") if "OPENAI_API_KEY" in os.environ else None
+if openai_api_key and openai is not None:
+    openai.api_key = openai_api_key
+
+def _generate_reply(prompt: str) -> str:
+    """
+    Generate a reply using OpenAI 'o4-mini' when an API key is present;
+    otherwise fall back to the local SGLang runtime.
+    """
+    if openai_api_key and openai is not None:
+        # openai>=1.0.0 uses the `chat.completions.create` namespace
+        response = openai.chat.completions.create(
+            model="o4-mini",
+            messages=[{"role": "user", "content": prompt}],
+            max_completion_tokens=1024,
+            temperature=0.7,
+        )
+        return response.choices[0].message.content.strip()
+    else:
+        state = chat.run(history=prompt)
+        return state["reply"].strip()
+
 def make_history(conv, system_prompt):
     """
     Formats the conversation history and prepends the system prompt.
@@ -51,8 +79,7 @@ def run_single_prompt(prompt_text: str, **kwargs):
     while True:
         prompt = make_history(conv, system_prompt)
         print(prompt)
-        state = chat.run(history=prompt)
-        reply = state['reply'].strip()
+        reply = _generate_reply(prompt)
         
         json_start_index = reply.find('{')
         
