@@ -40,19 +40,20 @@ def make_history(conv, system_prompt):
             out += f"{role}: {text}\n"
     return system_prompt + "\n" + out
 
-def run_single_prompt(prompt_text: str):
+def run_single_prompt(prompt_text: str, **kwargs):
     """
     Runs the agent for a single turn with a given prompt.
     It will continue to loop through tools until a final text answer is generated.
     """
     conv = [("user", prompt_text)]
     system_prompt = build_system_prompt()
-    
+    print(system_prompt)
     while True:
         prompt = make_history(conv, system_prompt)
+        print(prompt)
         state = chat.run(history=prompt)
         reply = state['reply'].strip()
-
+        
         json_start_index = reply.find('{')
         
         if json_start_index != -1:
