@@ -2,9 +2,15 @@ import importlib
 import os
 import sys
 from pathlib import Path
-
+ 
 import sglang as sgl
 import yaml
+ 
+# Optional OpenAI remote backend
+try:
+    import openai
+except ImportError:
+    openai = None
 
 def _load_config(path: str = "config/default.yaml") -> dict:
     with open(Path(path)) as f:
@@ -25,6 +31,17 @@ def main():
     
     cfg = _load_config()
     _load_tools(cfg.get("enabled_tools", []))
+ 
+    # --- Remote backend via OpenAI API if key provided ---
+    openai_api_key = os.getenv("OPENAI_API_KEY")
+    if openai_api_key:
+        if openai is None:
+            print("Please install the openai package (pip install openai) to use the remote model.")
+            sys.exit(1)
+        openai.api_key = openai_api_key
+        from agent.agent import run_single_prompt
+        run_single_prompt(prompt, debug=debug_mode)
+        return
 
     model_path = os.path.expanduser(cfg["model_path"])
     tokenizer_path = os.path.expanduser(cfg["tokenizer_path"])
