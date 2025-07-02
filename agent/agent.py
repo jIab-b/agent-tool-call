@@ -161,7 +161,6 @@ def run_single_prompt(prompt_text: str, **kwargs):
     except Exception:
         # fallback to legacy behaviour if plan generation fails
         return _run_single_prompt_legacy(prompt_text, **kwargs)
-
     if not plan:
         return _run_single_prompt_legacy(prompt_text, **kwargs)
 
