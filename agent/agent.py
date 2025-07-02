@@ -48,7 +48,7 @@ def _generate_reply(prompt: str) -> str:
             model="o4-mini",
             messages=[{"role": "user", "content": prompt}],
             max_completion_tokens=1024,
-            temperature=0.7,
+            temperature=1.0,
         )
         return response.choices[0].message.content.strip()
     else:
