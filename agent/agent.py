@@ -153,50 +153,88 @@ def _substitute_args(args: Dict[str, Any], outputs: List[Any]) -> Dict[str, Any]
     return {k: _sub(v) for k, v in args.items()}
 
 
-def run_single_prompt(prompt_text: str, **kwargs):
-    """Hybrid planner-executor implementation."""
-    debug_mode = kwargs.get("debug", 0)
+def is_plan_reply(text: str) -> bool:
+    """Return True if `text` contains a JSON array plan."""
     try:
-        if debug_mode >= 2:
-            print("--- Agent: Generating plan ---")
-        plan = generate_plan(prompt_text, debug_mode=debug_mode)
+        _extract_json_array(text)
+        return True
     except Exception:
-        if debug_mode >= 2:
-            print("--- Agent: Plan generation failed, falling back to legacy mode ---")
-        # fallback to legacy behaviour if plan generation fails
-        return _run_single_prompt_legacy(prompt_text, **kwargs)
-    if not plan:
-        if debug_mode >= 2:
-            print("--- Agent: Plan is empty, falling back to legacy mode ---")
-        return _run_single_prompt_legacy(prompt_text, **kwargs)
+        return False
 
-    conv = [("user", prompt_text)]
-    outputs: List[Any] = []
 
-    for idx, step in enumerate(plan, 1):
-        tool_name = step.get("tool")
-        if not tool_name:
-            conv.append(("error", f"step {idx} missing tool"))
-            break
+def run_reason_act_loop(
+    prompt_text: str,
+    *,
+    max_turns: int = 5,
+    debug: int = 0,
+):
+    """
+    Continuous Reason-Act loop.
+    The agent repeatedly queries the LLM, executes any returned plan,
+    and stops when a natural-language answer is provided or `max_turns`
+    is exceeded.
+    """
+    system_prompt = build_system_prompt()
+    conv: List[tuple[str, str]] = [("user", prompt_text)]
 
-        raw_args = step.get("args", {})
-        args = _substitute_args(raw_args, outputs)
+    for turn in range(1, max_turns + 1):
+        if debug >= 2:
+            print(f"--- Turn {turn}/{max_turns}: prompting LLM ---")
+        reply = _generate_reply(make_history(conv, system_prompt))
 
+        if debug >= 2:
+            print(f"--- LLM Reply ---\n{reply}\n-----------------")
+
+        # Attempt to parse the reply as a plan.
         try:
-            tool = get(tool_name)
-            result = tool.run(args)
-        except Exception as e:
-            conv.append(("error", f"{tool_name} failed: {e}"))
-            if debug_mode >= 2:
-                print(f"--- Agent: Tool {tool_name} failed: {e} ---")
-            break
+            plan = _extract_json_array(reply)
+        except Exception:
+            # Not a plan → treat as final answer and exit.
+            print("\nAssistant:")
+            print(reply)
+            return
+ 
+        # -----------------------------------------------------------------
+        # The reply **is** a plan – execute each tool step.
+        # -----------------------------------------------------------------
+        conv.append(("assistant", reply))
+        if debug >= 2:
+            print(f"--- Detected plan with {len(plan)} steps ---")
+ 
+        outputs: List[Any] = []
+        for idx, step in enumerate(plan, 1):
+            tool_name = step.get("tool")
+            raw_args = step.get("args", {})
+            args = _substitute_args(raw_args, outputs)
+ 
+            if debug >= 1:
+                print(f"--- Executing step {idx}: {tool_name}, args: {args} ---")
+ 
+            try:
+                tool = get(tool_name)
+                result = tool.run(args)
+            except Exception as e:
+                result = f"Error executing {tool_name}: {e}"
+                if debug >= 2:
+                    print(f"--- Tool error: {result} ---")
+ 
+            outputs.append(result)
+            conv.append(("tool", result))
+        # Loop continues to ask the LLM with updated history
 
-        outputs.append(result)
-        conv.append(("tool", result))
-        if debug_mode >= 1:
-            print(f"--- Agent: Executing step {idx}: {tool_name}, args: {args} ---")
-
-    # final answer
-    final_reply = _generate_reply(make_history(conv, build_system_prompt()))
+    # Reached maximum turns without a final answer
     print("\nAssistant:")
-    print(final_reply)
+    print("Reached maximum reasoning turns without a definitive answer.")
+
+
+# -------------------------------------------------------------------------
+# Back-compatibility shim
+# -------------------------------------------------------------------------
+def run_single_prompt(prompt_text: str, **kwargs):
+    """
+    Alias to run_reason_act_loop so existing entry points remain valid.
+    Accepts 'debug' and 'max_turns' via **kwargs.
+    """
+    debug_mode = kwargs.get("debug", 0)
+    max_turns = kwargs.get("max_turns", 5)
+    return run_reason_act_loop(prompt_text, max_turns=max_turns, debug=debug_mode)

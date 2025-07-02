@@ -24,11 +24,20 @@ def _load_tools(enabled):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("prompt", type=str, help="The user prompt for the agent.")
-    parser.add_argument("--debug", type=int, default=0, help="Set the debug level (0, 1, or 2).")
+    parser.add_argument(
+        "--debug", type=int, default=0, help="Set the debug level (0, 1, or 2)."
+    )
+    parser.add_argument(
+        "--max-turns",
+        type=int,
+        default=5,
+        help="Maximum Reason-Act turns before giving up (default: 5).",
+    )
     args = parser.parse_args()
 
     prompt = args.prompt
     debug_mode = args.debug
+    max_turns = args.max_turns
     
     cfg = _load_config()
     _load_tools(cfg.get("enabled_tools", []))
@@ -41,7 +50,7 @@ def main():
             sys.exit(1)
         openai.api_key = openai_api_key
         from agent.agent import run_single_prompt
-        run_single_prompt(prompt, debug=debug_mode)
+        run_single_prompt(prompt, debug=debug_mode, max_turns=max_turns)
         return
 
     model_path = os.path.expanduser(cfg["model_path"])
@@ -60,7 +69,7 @@ def main():
     sgl.set_default_backend(runtime)
 
     from agent.agent import run_single_prompt
-    run_single_prompt(prompt, debug=debug_mode)
+    run_single_prompt(prompt, debug=debug_mode, max_turns=max_turns)
     runtime.shutdown()
 
 if __name__ == "__main__":
