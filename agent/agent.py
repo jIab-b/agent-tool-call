@@ -4,6 +4,13 @@ from typing import List, Dict, Any
 
 import sglang as sgl
 from tools.tool_base import get, list_available
+
+# optional runtime JSON-schema validation
+try:
+    import jsonschema  # type: ignore
+except ImportError:
+    jsonschema = None
+
 try:
     import openai
 except ImportError:
@@ -40,7 +47,12 @@ openai_api_key = os.getenv("OPENAI_API_KEY") if "OPENAI_API_KEY" in os.environ e
 if openai_api_key and openai is not None:
     openai.api_key = openai_api_key
 
-def _generate_reply(prompt: str) -> str:
+def _generate_reply(
+    prompt: str,
+    *,
+    temperature: float | None = None,
+    max_tokens: int | None = None,
+) -> str:
     """
     Generate a reply using OpenAI 'o4-mini' when an API key is present;
     otherwise fall back to the local SGLang runtime.
@@ -49,8 +61,8 @@ def _generate_reply(prompt: str) -> str:
         response = openai.chat.completions.create(
             model="gpt-4.1-mini",
             messages=[{"role": "user", "content": prompt}],
-            max_completion_tokens=1024,
-            temperature=1.0,
+            max_completion_tokens=max_tokens or 1024,
+            temperature=temperature if temperature is not None else 1.0,
         )
         return response.choices[0].message.content.strip()
     else:
@@ -128,11 +140,38 @@ def _extract_json_array(text: str) -> List[Dict[str, Any]]:
     return arr
 
 
-def generate_plan(prompt_text: str, debug_mode: int = 0) -> List[Dict[str, Any]]:
+# -------------------------------------------------------------------------
+# Safer plan extractor with optional schema validation
+# -------------------------------------------------------------------------
+def _safe_extract_plan(text: str) -> List[Dict[str, Any]] | None:
+    """
+    Attempt to extract a JSON array; return None on failure
+    or schema violation (when jsonschema is available).
+    """
+    try:
+        arr = _extract_json_array(text)
+        if jsonschema is not None:
+            jsonschema.validate(arr, {"type": "array"})
+        return arr
+    except Exception:
+        return None
+
+
+def generate_plan(
+    prompt_text: str,
+    *,
+    debug_mode: int = 0,
+    temperature: float | None = None,
+    max_tokens: int | None = None,
+) -> List[Dict[str, Any]]:
     """Ask the model to return a `plan` array of tool calls."""
     system_prompt = build_system_prompt()
     conv = [("user", prompt_text)]
-    reply = _generate_reply(make_history(conv, system_prompt))
+    reply = _generate_reply(
+        make_history(conv, system_prompt),
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )
     if debug_mode >= 2:
         print("--- Plan LLM Reply ---")
         print(reply)
@@ -165,8 +204,10 @@ def is_plan_reply(text: str) -> bool:
 def run_reason_act_loop(
     prompt_text: str,
     *,
-    max_turns: int = 5,
+    max_turns: int = 8,  # slightly higher headroom
     debug: int = 0,
+    temperature: float | None = None,
+    max_tokens: int | None = None,
 ):
     """
     Continuous Reason-Act loop.
@@ -180,19 +221,30 @@ def run_reason_act_loop(
     for turn in range(1, max_turns + 1):
         if debug >= 2:
             print(f"--- Turn {turn}/{max_turns}: prompting LLM ---")
-        reply = _generate_reply(make_history(conv, system_prompt))
+        reply = _generate_reply(
+            make_history(conv, system_prompt),
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
 
         if debug >= 2:
             print(f"--- LLM Reply ---\n{reply}\n-----------------")
 
         # Attempt to parse the reply as a plan.
-        try:
-            plan = _extract_json_array(reply)
-        except Exception:
-            # Not a plan → treat as final answer and exit.
-            print("\nAssistant:")
-            print(reply)
-            return
+        plan = _safe_extract_plan(reply)
+        if plan is None:
+            # Send corrective prompt and retry this turn
+            if debug >= 1:
+                print("--- Invalid or missing plan; requesting correction ---")
+            conv.append(("assistant", reply))
+            conv.append(
+                (
+                    "user",
+                    "Your previous answer was not a valid JSON array named `plan`. "
+                    "Please return ONLY the array following the specification.",
+                )
+            )
+            continue
  
         # -----------------------------------------------------------------
         # The reply **is** a plan – execute each tool step.
@@ -233,8 +285,16 @@ def run_reason_act_loop(
 def run_single_prompt(prompt_text: str, **kwargs):
     """
     Alias to run_reason_act_loop so existing entry points remain valid.
-    Accepts 'debug' and 'max_turns' via **kwargs.
+    Accepts 'debug', 'max_turns', 'temperature', and 'max_tokens' via **kwargs.
     """
     debug_mode = kwargs.get("debug", 0)
-    max_turns = kwargs.get("max_turns", 5)
-    return run_reason_act_loop(prompt_text, max_turns=max_turns, debug=debug_mode)
+    max_turns = kwargs.get("max_turns", 8)
+    temperature = kwargs.get("temperature")
+    max_tokens = kwargs.get("max_tokens")
+    return run_reason_act_loop(
+        prompt_text,
+        max_turns=max_turns,
+        debug=debug_mode,
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )

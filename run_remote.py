@@ -33,6 +33,18 @@ def main():
         default=5,
         help="Maximum Reason-Act turns before giving up (default: 5).",
     )
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=None,
+        help="Override temperature for the model",
+    )
+    parser.add_argument(
+        "--max-tokens",
+        type=int,
+        default=None,
+        help="Override max completion tokens",
+    )
     args = parser.parse_args()
 
     prompt = args.prompt
@@ -50,7 +62,13 @@ def main():
             sys.exit(1)
         openai.api_key = openai_api_key
         from agent.agent import run_single_prompt
-        run_single_prompt(prompt, debug=debug_mode, max_turns=max_turns)
+        run_single_prompt(
+            prompt,
+            debug=debug_mode,
+            max_turns=max_turns,
+            temperature=args.temperature,
+            max_tokens=args.max_tokens,
+        )
         return
 
     model_path = os.path.expanduser(cfg["model_path"])
@@ -69,7 +87,13 @@ def main():
     sgl.set_default_backend(runtime)
 
     from agent.agent import run_single_prompt
-    run_single_prompt(prompt, debug=debug_mode, max_turns=max_turns)
+    run_single_prompt(
+        prompt,
+        debug=debug_mode,
+        max_turns=max_turns,
+        temperature=args.temperature,
+        max_tokens=args.max_tokens,
+    )
     runtime.shutdown()
 
 if __name__ == "__main__":
