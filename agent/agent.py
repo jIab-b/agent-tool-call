@@ -3,7 +3,6 @@ import json
 import os
 from typing import Any, Dict, List, Optional
 
-import sglang as sgl
 from tools.tool_base import ToolRegistry, Tool
 
 # Conditional imports for backend support
@@ -19,7 +18,6 @@ class Agent:
         self.config = config
         self.registry = registry
         self.system_prompt = self._build_system_prompt()
-        self.openai_api_key = os.getenv("OPENAI_API_KEY")
 
     def run(self, prompt_text: str):
         """Entry point to run the agent's reasoning loop."""
@@ -52,19 +50,14 @@ class Agent:
         return self.system_prompt + "\n" + out
 
     def _generate_reply(self, prompt: str) -> str:
-        """Generates a reply using the configured backend (OpenAI or local SGLang)."""
-        if self.openai_api_key and openai:
-            response = openai.chat.completions.create(
-                model="gpt-4.1-mini",
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=self.config.max_tokens or 1024,
-                temperature=self.config.temperature if self.config.temperature is not None else 1.0,
-            )
-            return response.choices[0].message.content.strip()
-        else:
-            # Fallback to local SGLang model
-            state = sgl.run(sgl.user(prompt) + sgl.assistant(sgl.gen("reply", max_tokens=self.config.max_tokens or 1024)))
-            return state["reply"].strip()
+        """Generates a reply using the OpenAI API."""
+        response = openai.chat.completions.create(
+            model="gpt-4.1-mini",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=self.config.max_tokens or 1024,
+            temperature=self.config.temperature if self.config.temperature is not None else 1.0,
+        )
+        return response.choices[0].message.content.strip()
 
     async def _run_reason_act_loop_async(self, prompt_text: str):
         """The main async reasoning loop for the agent."""
