@@ -10,3 +10,4 @@ enabled_tools:
   - sandbox
   - list_directory
   - find_path
+  - retrieve_context

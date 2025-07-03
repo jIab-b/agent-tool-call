@@ -39,3 +39,18 @@ def get(name: str) -> Tool:
 
 def list_available() -> List[Tool]:
     return list(_registry.values())
+
+import asyncio
+
+def to_openai_def(t: Tool) -> Dict[str, Any]:
+    """Export Tool metadata as OpenAI function definition."""
+    return {
+        "name": t.name,
+        "description": t.description,
+        "parameters": t.parameters,
+    }
+
+async def invoke(tool: Tool, args: Dict[str, Any]) -> str:
+    """Run tool.run(), awaiting if it returns a coroutine."""
+    res = tool.run(args)
+    return await res if asyncio.iscoroutine(res) else res

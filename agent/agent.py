@@ -3,7 +3,8 @@ import os
 from typing import List, Dict, Any
 
 import sglang as sgl
-from tools.tool_base import get, list_available
+from tools.tool_base import get, list_available, to_openai_def, invoke
+import asyncio
 
 # optional runtime JSON-schema validation
 try:
@@ -61,10 +62,17 @@ def _generate_reply(
         response = openai.chat.completions.create(
             model="gpt-4.1-mini",
             messages=[{"role": "user", "content": prompt}],
+            functions=[to_openai_def(t) for t in list_available()],
+            function_call="auto",
             max_completion_tokens=max_tokens or 1024,
             temperature=temperature if temperature is not None else 1.0,
         )
-        return response.choices[0].message.content.strip()
+        choice = response.choices[0]
+        if choice.finish_reason == "function_call":
+            name = choice.message.function_call.name
+            arguments = json.loads(choice.message.function_call.arguments)
+            return json.dumps([{"tool": name, "args": arguments}], ensure_ascii=False)
+        return choice.message.content.strip()
     else:
         state = chat.run(history=prompt)
         return state["reply"].strip()
@@ -280,21 +288,68 @@ def run_reason_act_loop(
 
 
 # -------------------------------------------------------------------------
+# Async execution loop
+# -------------------------------------------------------------------------
+async def run_reason_act_loop_async(
+    prompt_text: str,
+    *,
+    max_turns: int = 8,
+    debug: int = 0,
+    temperature: float | None = None,
+    max_tokens: int | None = None,
+):
+    """
+    Async Reason-Act loop: runs LLM calls in threadpool and tool calls concurrently.
+    """
+    system_prompt = build_system_prompt()
+    conv = [("user", prompt_text)]
+    outputs = []
+    for turn in range(1, max_turns + 1):
+        if debug >= 2:
+            print(f"--- Turn {turn}/{max_turns} (async) ---")
+        prompt = make_history(conv, system_prompt)
+        reply = await asyncio.to_thread(_generate_reply, prompt, temperature=temperature, max_tokens=max_tokens)
+        plan = _safe_extract_plan(reply)
+        if plan is None:
+            conv.append(("assistant", reply))
+            conv.append(
+                (
+                    "user",
+                    "Your previous answer was not a valid JSON array named `plan`. "
+                    "Please return ONLY the array following the specification.",
+                )
+            )
+            continue
+        conv.append(("assistant", reply))
+        tasks = [
+            asyncio.create_task(invoke(get(step.get("tool")), _substitute_args(step.get("args", {}), outputs)))
+            for step in plan
+        ]
+        outputs = await asyncio.gather(*tasks, return_exceptions=True)
+        for result in outputs:
+            conv.append(("tool", result))
+    print("\nAssistant:")
+    print("Reached maximum reasoning turns without a definitive answer.")
+
+# -------------------------------------------------------------------------
 # Back-compatibility shim
 # -------------------------------------------------------------------------
 def run_single_prompt(prompt_text: str, **kwargs):
     """
-    Alias to run_reason_act_loop so existing entry points remain valid.
+    Alias to run the async Reason-Act loop so existing entry points remain valid.
     Accepts 'debug', 'max_turns', 'temperature', and 'max_tokens' via **kwargs.
     """
     debug_mode = kwargs.get("debug", 0)
     max_turns = kwargs.get("max_turns", 8)
     temperature = kwargs.get("temperature")
     max_tokens = kwargs.get("max_tokens")
-    return run_reason_act_loop(
-        prompt_text,
-        max_turns=max_turns,
-        debug=debug_mode,
-        temperature=temperature,
-        max_tokens=max_tokens,
+    # run async loop via asyncio to allow concurrent tool IO
+    return asyncio.run(
+        run_reason_act_loop_async(
+            prompt_text,
+            max_turns=max_turns,
+            debug=debug_mode,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
     )

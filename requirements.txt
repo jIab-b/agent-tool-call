@@ -1,0 +1,13 @@
+
+PyYAML
+
+openai>=1.14
+
+jsonschema
+
+faiss-cpu
+sentence-transformers
+numpy
+
+aiofiles
+aiohttp
