@@ -40,6 +40,7 @@ class ToolRegistry:
     def list_available(self) -> List[Tool]:
         return list(self._registry.values())
 
+    # note: this is less effective than using tools in system prompt
     def to_openai_def(self, t: Tool) -> Dict[str, Any]:
         """Export Tool metadata as an OpenAI function definition."""
         return {
