@@ -306,28 +306,34 @@ async def run_reason_act_loop_async(
     outputs = []
     for turn in range(1, max_turns + 1):
         if debug >= 2:
-            print(f"--- Turn {turn}/{max_turns} (async) ---")
+            print(f"--- Turn {turn}/{max_turns}: Switching to 'generate_reply' function ---")
         prompt = make_history(conv, system_prompt)
         reply = await asyncio.to_thread(_generate_reply, prompt, temperature=temperature, max_tokens=max_tokens)
+        if debug >= 2:
+            print(f"--- LLM Raw Reply ---\n{reply}\n---------------------")
         plan = _safe_extract_plan(reply)
         if plan is None:
-            conv.append(("assistant", reply))
-            conv.append(
-                (
-                    "user",
-                    "Your previous answer was not a valid JSON array named `plan`. "
-                    "Please return ONLY the array following the specification.",
-                )
-            )
-            continue
+            # This is the final answer. Print it and exit.
+            print("\nAssistant:")
+            print(reply)
+            return
         conv.append(("assistant", reply))
-        tasks = [
-            asyncio.create_task(invoke(get(step.get("tool")), _substitute_args(step.get("args", {}), outputs)))
-            for step in plan
-        ]
+        if debug >= 2:
+            print(f"--- Switching to 'execute_plan' function ({len(plan)} steps) ---")
+
+        tasks = []
+        for step in plan:
+            tool_name = step.get("tool")
+            args = _substitute_args(step.get("args", {}), outputs)
+            if debug >= 1:
+                print(f"--- Tool Call: {tool_name}({json.dumps(args)}) ---")
+            tasks.append(asyncio.create_task(invoke(get(tool_name), args)))
+
         outputs = await asyncio.gather(*tasks, return_exceptions=True)
-        for result in outputs:
-            conv.append(("tool", result))
+        for i, result in enumerate(outputs):
+            if debug >= 1:
+                print(f"--- Tool Result[{i}]: {result} ---")
+            conv.append(("tool", str(result)))
     print("\nAssistant:")
     print("Reached maximum reasoning turns without a definitive answer.")
 
