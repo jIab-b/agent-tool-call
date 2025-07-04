@@ -1,6 +1,6 @@
 # llm-tools-inference (prototype)
 
-Minimal SGLang-powered function-calling agent wired to a handful of demo tools.
+Minimal api-powered function-calling agent wired to a handful of demo tools.
 
 ```
 python run.py
