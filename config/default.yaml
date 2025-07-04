@@ -1,11 +1,21 @@
 max_tokens: 8192
 temperature: 0.7
+sandbox: local # can be local or docker
+sandbox_opts:
+  image: python:3.11-slim
+  memory: "512m"
+  cpus: "0.5"
+  timeout: 5
+memory_backend: faiss_store
+memory_path: .rag/index.faiss
+embedding_model: all-MiniLM-L6-v2
 enabled_tools:
   - file_search
   - file_read
   - web_search
-  - mcp_wrapper
-  - sandbox
+  - web_scrape
+  - code_exec
   - list_directory
   - find_path
-  - retrieve_context
+  - memory_ingest
+  - memory_query

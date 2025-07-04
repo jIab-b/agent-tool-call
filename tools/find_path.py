@@ -10,8 +10,11 @@ def _run(args: dict) -> str:
     Finds files or directories matching a pattern starting from a root directory.
     """
     pattern = args["pattern"]
-    root = args.get("root", os.path.expanduser("~"))
+    root = args.get("root", ".")  # Default to current directory
     search_type = args.get("type", "all")  # 'all', 'file', or 'dir'
+
+    if os.path.abspath(root) == "/":
+        return json.dumps({"error": "Searching from the filesystem root is not allowed."})
 
     matches = []
     try:
@@ -31,12 +34,12 @@ def _run(args: dict) -> str:
 register(
     Tool(
         name="find_path",
-        description="Finds files or directories by searching from a root path.",
+        description="Finds files or directories by searching from a root path. Searching from the filesystem root is not permitted.",
         parameters={
             "type": "object",
             "properties": {
                 "pattern": {"type": "string", "description": "The search pattern (e.g., 'my_file.txt' or '*.log')"},
-                "root": {"type": "string", "description": "The root directory to start searching from. Defaults to the user's home directory."},
+                "root": {"type": "string", "description": "The root directory to start searching from. Defaults to the current project directory."},
                 "type": {"type": "string", "description": "Type of path to find: 'file', 'dir', or 'all'. Defaults to 'all'."}
             },
             "required": ["pattern"],

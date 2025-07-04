@@ -2,6 +2,11 @@ import argparse
 import importlib
 import os
 import sys
+from pathlib import Path
+
+# Add project root to the Python path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from dataclasses import dataclass, field
 from typing import List, Optional
 
@@ -24,6 +29,11 @@ class Config:
     max_tokens: Optional[int] = None
     max_turns: int = 5
     debug: int = 0
+    sandbox: str = "local"
+    sandbox_opts: dict = field(default_factory=dict)
+    memory_backend: str = "faiss_store"
+    memory_path: str = ".rag/index.faiss"
+    embedding_model: str = "all-MiniLM-L6-v2"
 
 def _load_config(cli_args: argparse.Namespace) -> Config:
     """Load config from YAML and merge CLI arguments."""
@@ -36,6 +46,11 @@ def _load_config(cli_args: argparse.Namespace) -> Config:
         max_tokens=cli_args.max_tokens or yaml_config.get("max_tokens"),
         max_turns=cli_args.max_turns,
         debug=cli_args.debug,
+        sandbox=yaml_config.get("sandbox", "local"),
+        sandbox_opts=yaml_config.get("sandbox_opts", {}),
+        memory_backend=yaml_config.get("memory_backend", "faiss_store"),
+        memory_path=yaml_config.get("memory_path", ".rag/index.faiss"),
+        embedding_model=yaml_config.get("embedding_model", "all-MiniLM-L6-v2"),
     )
 
 def _load_tools(tool_names: List[str]) -> ToolRegistry:
@@ -70,6 +85,8 @@ def main():
     # --- Initialization ---
     openai.api_key = _setup_api_key()
     config = _load_config(args)
+    if hasattr(config, 'sandbox'):
+        os.environ["SANDBOX_BACKEND"] = config.sandbox
     registry = _load_tools(config.enabled_tools)
     
     # --- Agent Execution ---

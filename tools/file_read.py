@@ -25,11 +25,11 @@ def _run(args: dict) -> str:
 register(
     Tool(
         name="file_read",
-        description="read a file (optionally line range)",
+        description="Reads a section of a file from the local filesystem. Cannot be used to access web URLs.",
         parameters={
             "type": "object",
             "properties": {
-                "path": {"type": "string"},
+                "path": {"type": "string", "description": "The local file path to read."},
                 "start_line": {"type": "integer"},
                 "end_line": {"type": "integer"},
             },

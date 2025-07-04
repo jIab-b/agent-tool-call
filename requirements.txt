@@ -1,14 +1,21 @@
+# Core
 PyYAML
 openai>=1.14
+python-dotenv
 jsonschema
 
-
+# Vector DB
 faiss-cpu
 sentence-transformers
 numpy
 
+# Sandbox
+docker
+
+# Async (Optional, for some tools)
 aiofiles
 aiohttp
 
-
-python-dotenv
+# Web Scraping
+requests
+beautifulsoup4

@@ -8,30 +8,26 @@ from .tool_base import Tool, register
 
 def _fetch(query: str, num: int = 5) -> list[dict]:
     """
-    Simple DuckDuckGo HTML scrape (no API key required).
-    Returns a list of {title,url,snippet}.
+    Uses the DuckDuckGo Instant Answer API (no API key required).
+    Returns a list of {title, url}.
     """
-    url = "https://duckduckgo.com/html/?q=" + urllib.parse.quote_plus(query)
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-            "(KHTML, like Gecko) Chrome/117 Safari/537.36"
-        )
-    }
-    req = urllib.request.Request(url, headers=headers)
-    with urllib.request.urlopen(req, timeout=5) as resp:
-        html = resp.read().decode(errors="ignore")
+    url = f"https://api.duckduckgo.com/?q={urllib.parse.quote_plus(query)}&format=json"
+    try:
+        with urllib.request.urlopen(url, timeout=5) as resp:
+            data = json.loads(resp.read().decode())
+        
+        results = []
+        if data.get("AbstractURL"):
+            results.append({"title": data.get("Heading"), "url": data.get("AbstractURL")})
 
-    # crude parse for results
-    results = []
-    pattern = re.compile(r'<a rel="nofollow" class="result__a" href="([^"]+?)".*?>(.+?)</a>', re.S)
-    for m in pattern.finditer(html):
-        href, title = m.groups()
-        title = re.sub(r"<.*?>", "", title)
-        results.append({"title": title, "url": href})
-        if len(results) >= num:
-            break
-    return results
+        for result in data.get("RelatedTopics", []):
+            if "Text" in result and "FirstURL" in result:
+                results.append({"title": result["Text"], "url": result["FirstURL"]})
+            if len(results) >= num:
+                break
+        return results
+    except Exception:
+        return []
 
 
 def _run(args: dict) -> str:
