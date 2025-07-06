@@ -107,10 +107,18 @@ class Agent:
     def _safe_extract_plan(self, text: str) -> Optional[List[Dict[str, Any]]]:
         """Safely extracts a JSON array plan from the LLM's reply."""
         try:
-            start = text.find("[")
-            if start == -1: return None
-            arr, _ = json.JSONDecoder().raw_decode(text[start:])
-            return arr if isinstance(arr, list) else None
+            # Find the start and end of the outermost JSON array
+            start_index = text.find('[')
+            end_index = text.rfind(']')
+            if start_index == -1 or end_index == -1 or end_index < start_index:
+                return None
+            
+            json_str = text[start_index : end_index + 1]
+            plan = json.loads(json_str)
+            
+            if isinstance(plan, list):
+                return plan
+            return None
         except (json.JSONDecodeError, ValueError):
             return None
 

@@ -27,7 +27,7 @@ class Config:
     enabled_tools: List[str] = field(default_factory=list)
     temperature: Optional[float] = None
     max_tokens: Optional[int] = None
-    max_turns: int = 5
+    max_turns: int = 10
     debug: int = 0
     sandbox: str = "local"
     sandbox_opts: dict = field(default_factory=dict)
@@ -44,7 +44,7 @@ def _load_config(cli_args: argparse.Namespace) -> Config:
         enabled_tools=yaml_config.get("enabled_tools", []),
         temperature=cli_args.temperature or yaml_config.get("temperature"),
         max_tokens=cli_args.max_tokens or yaml_config.get("max_tokens"),
-        max_turns=cli_args.max_turns,
+        max_turns=cli_args.max_turns or yaml_config.get("max_turns"),
         debug=cli_args.debug,
         sandbox=yaml_config.get("sandbox", "local"),
         sandbox_opts=yaml_config.get("sandbox_opts", {}),
@@ -77,7 +77,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("prompt", type=str, help="The user prompt for the agent.")
     parser.add_argument("--debug", type=int, default=0, help="Set debug level.")
-    parser.add_argument("--max-turns", type=int, default=5, help="Max Reason-Act turns.")
+    parser.add_argument("--max-turns", type=int, default=None, help="Max Reason-Act turns.")
     parser.add_argument("--temperature", type=float, default=None, help="Override model temperature.")
     parser.add_argument("--max-tokens", type=int, default=None, help="Override max completion tokens.")
     args = parser.parse_args()
