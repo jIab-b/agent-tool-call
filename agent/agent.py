@@ -1,4 +1,3 @@
-import asyncio
 import json
 import os
 from typing import Any, Dict, List, Optional
@@ -21,7 +20,7 @@ class Agent:
 
     def run(self, prompt_text: str):
         """Entry point to run the agent's reasoning loop."""
-        return asyncio.run(self._run_reason_act_loop_async(prompt_text))
+        return self._run_reason_act_loop(prompt_text)
 
     def _build_system_prompt(self) -> str:
         """Dynamically builds the system prompt from the tool registry."""
@@ -59,17 +58,17 @@ class Agent:
         )
         return response.choices[0].message.content.strip()
 
-    async def _run_reason_act_loop_async(self, prompt_text: str):
-        """The main async reasoning loop for the agent."""
+    def _run_reason_act_loop(self, prompt_text: str):
+        """The main synchronous reasoning loop for the agent."""
         conv = [("user", prompt_text)]
         outputs = []
         for turn in range(1, self.config.max_turns + 1):
             if self.config.debug >= 2:
                 print(f"--- Turn {turn}/{self.config.max_turns}: Generating plan ---")
-            
+
             prompt = self._make_history(conv)
-            reply = await asyncio.to_thread(self._generate_reply, prompt)
-            
+            reply = self._generate_reply(prompt)
+
             if self.config.debug >= 2:
                 print(f"--- LLM Raw Reply ---\n{reply}\n---------------------")
 
@@ -79,30 +78,38 @@ class Agent:
                 return
 
             conv.append(("assistant", reply))
-            outputs = await self._execute_plan_async(plan, outputs)
+            outputs = self._execute_plan(plan, outputs)
             for result in outputs:
                 conv.append(("tool", str(result)))
 
         print("\nAssistant:\nReached maximum reasoning turns without a definitive answer.")
 
-    async def _execute_plan_async(self, plan: List[Dict[str, Any]], prev_outputs: List[Any]) -> List[Any]:
-        """Executes a list of tool calls concurrently."""
+    def _execute_plan(self, plan: List[Dict[str, Any]], prev_outputs: List[Any]) -> List[Any]:
+        """Executes a list of tool calls sequentially."""
         if self.config.debug >= 2:
             print(f"--- Executing plan with {len(plan)} steps ---")
 
-        tasks = []
-        for step in plan:
+        results = []
+        for i, step in enumerate(plan):
             tool_name = step.get("tool")
             args = self._substitute_args(step.get("args", {}), prev_outputs)
+            
             if self.config.debug >= 1:
                 print(f"--- Tool Call: {tool_name}({json.dumps(args)}) ---")
-            tasks.append(asyncio.create_task(self.registry.invoke(self.registry.get(tool_name), args)))
-
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        for i, res in enumerate(results):
-            if self.config.debug >= 1:
-                print(f"--- Tool Result[{i}]: {res} ---")
-        return results
+            
+            try:
+                tool = self.registry.get(tool_name)
+                result = tool.run(args)
+                results.append(result)
+                if self.config.debug >= 1:
+                    print(f"--- Tool Result[{i}]: {result} ---")
+            except Exception as e:
+                results.append(str(e))
+                if self.config.debug >= 1:
+                    print(f"--- Tool Error[{i}]: {e} ---")
+        
+        prev_outputs.extend(results)
+        return prev_outputs
 
     def _safe_extract_plan(self, text: str) -> Optional[List[Dict[str, Any]]]:
         """Safely extracts a JSON array plan from the LLM's reply."""
@@ -133,3 +140,6 @@ class Agent:
                     return val
             return val
         return {k: _sub(v) for k, v in args.items()}
+
+if __name__ == "__main__":
+    print("Python agent is alive!")
