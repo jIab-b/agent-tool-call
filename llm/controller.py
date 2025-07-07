@@ -1,54 +1,70 @@
+import asyncio
 import subprocess
 import sys
 import shlex
 
-def main():
+# Add project root to the Python path to allow imports from other directories
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from memory.faiss_store import FaissStore
+from memory.memory_manager import MemoryManager
+
+def run_agent(prompt: str) -> str:
+    """Executes the agent script and captures its full output."""
+    cmd = f"python llm/run_remote.py {shlex.quote(prompt)}"
+    result = subprocess.run(
+        cmd,
+        shell=True,
+        capture_output=True,
+        text=True
+    )
+    return result.stdout.strip()
+
+async def main():
     """
-    A CLI controller for interacting with the LLM agent continuously.
-    This tool wraps the existing run_remote.py script to provide a chat-like interface.
+    A CLI controller for interacting with the LLM agent continuously,
+    enhanced with a multi-layered memory system.
     """
-    print("LLM Agent Controller")
+    print("LLM Agent Controller (with Memory)")
     print("Type 'exit' or 'quit' to end the session.")
     print("-" * 30)
 
-    while True:
-        try:
-            # 1. Get user input from the prompt
+    # 1. Initialize the memory system
+    long_term_memory = FaissStore()
+    memory_manager = MemoryManager(long_term_memory)
+    memory_manager.load()
+
+    try:
+        while True:
+            # 2. Get user input
             user_input = input("You: ")
-
             if user_input.lower() in ["exit", "quit"]:
-                print("Exiting controller.")
                 break
-
             if not user_input.strip():
                 continue
 
-            # 2. Construct the command to run the agent script
-            # We use shlex.quote to ensure the user input is passed safely to the shell.
-            cmd = f"python llm/run_remote.py {shlex.quote(user_input)}"
+            # 3. Construct a context-rich prompt
+            augmented_prompt = await memory_manager.construct_prompt(user_input)
+            
+            # 4. Run the agent with the augmented prompt
+            print("Assistant is thinking...")
+            agent_output = run_agent(augmented_prompt)
+            print(f"Assistant: {agent_output}")
 
-            # 3. Execute the command and stream the output in real-time
-            # This allows us to see the agent's progress as it happens.
-            with subprocess.Popen(
-                cmd,
-                shell=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1
-            ) as process:
-                if process.stdout:
-                    for line in iter(process.stdout.readline, ''):
-                        print(line, end='')
+            # 5. Update memory with the new interaction
+            await memory_manager.add_message("user", user_input)
+            await memory_manager.add_message("assistant", agent_output)
 
             print("\n" + "-" * 30)
 
-        except KeyboardInterrupt:
-            print("\nExiting controller.")
-            break
-        except Exception as e:
-            print(f"\nAn error occurred: {e}")
-            break
+    except (KeyboardInterrupt, EOFError):
+        print("\nExiting controller.")
+    finally:
+        # 6. Ensure memory is saved on exit
+        print("Saving memory...")
+        memory_manager.save()
+        print("Done.")
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

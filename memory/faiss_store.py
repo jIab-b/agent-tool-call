@@ -18,41 +18,48 @@ class FaissStore(Memory):
         self.index: Optional[faiss.Index] = None
         self.metadata: List[Dict[str, Any]] = []
 
-    def _lazy_init(self):
-        """Lazy load model and index to avoid startup cost."""
+    def _get_model(self) -> SentenceTransformer:
+        """Returns the singleton model instance, loading if needed."""
         if self.model is None:
             self.model = SentenceTransformer(self.model_name)
-        if self.index is None and os.path.exists(self.index_path):
+        return self.model
+
+    def load(self):
+        """Loads the index and metadata from disk."""
+        model = self._get_model()
+        if os.path.exists(self.index_path):
             self.index = faiss.read_index(self.index_path)
             with open(self.meta_path, "rb") as f:
                 self.metadata = pickle.load(f)
-        elif self.index is None:
-            d = self.model.get_sentence_embedding_dimension()
-            self.index = faiss.IndexFlatL2(d)
-
-    async def ingest(self, texts: List[str], metadatas: List[Dict[str, Any]]):
-        self._lazy_init()
-        vectors = self.model.encode(texts)
-        if self.index.ntotal == 0:
-            d = vectors.shape[1]
+        else:
+            d = model.get_sentence_embedding_dimension()
             self.index = faiss.IndexIDMap(faiss.IndexFlatL2(d))
 
-        combined_data = [{"text": text, "metadata": meta} for text, meta in zip(texts, metadatas)]
-        self.index.add_with_ids(np.array(vectors).astype(np.float32), np.arange(len(self.metadata), len(self.metadata) + len(texts)))
-        self.metadata.extend(combined_data)
-        faiss.write_index(self.index, self.index_path)
-        with open(self.meta_path, "wb") as f:
-            pickle.dump(self.metadata, f)
+    def save(self):
+        """Saves the index and metadata to disk."""
+        if self.index is not None:
+            faiss.write_index(self.index, self.index_path)
+            with open(self.meta_path, "wb") as f:
+                pickle.dump(self.metadata, f)
+
+    async def ingest(self, texts: List[str], metadatas: List[Dict[str, Any]]):
+        """Ingests texts into the in-memory index."""
+        model = self._get_model()
+        vectors = model.encode(texts)
+        
+        start_index = self.index.ntotal
+        self.index.add_with_ids(np.array(vectors).astype(np.float32), np.arange(start_index, start_index + len(texts)))
+        
+        for text, meta in zip(texts, metadatas):
+            self.metadata.append({"text": text, "metadata": meta})
 
     async def query(self, query: str, k: int = 5) -> List[Dict[str, Any]]:
-        self._lazy_init()
-        if self.index.ntotal == 0:
+        """Queries the in-memory index."""
+        if self.index is None or self.index.ntotal == 0:
             return []
-        vec = self.model.encode([query])
-        D, I = self.index.search(np.array(vec).astype(np.float32), k)
         
-        results = []
-        for idx in I[0]:
-            if 0 <= idx < len(self.metadata):
-                results.append(self.metadata[idx])
-        return results
+        model = self._get_model()
+        vec = model.encode([query])
+        _, indices = self.index.search(np.array(vec).astype(np.float32), k)
+        
+        return [self.metadata[i] for i in indices[0] if 0 <= i < len(self.metadata)]
